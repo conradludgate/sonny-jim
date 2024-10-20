@@ -15,17 +15,13 @@ use logos::Logos;
 #[derive(Logos, Debug, PartialEq)]
 #[logos(skip r"[ \t\r\n]+")] // Ignore this regex pattern between tokens
 enum Token {
-    #[token("{")]
-    BraceOpen,
+    #[token("{", |_| StackKind::Object)]
+    #[token("[", |_| StackKind::Array)]
+    Open(StackKind),
 
-    #[token("}")]
-    BraceClose,
-
-    #[token("[")]
-    BracketOpen,
-
-    #[token("]")]
-    BracketClose,
+    #[token("}", |_| StackKind::Object)]
+    #[token("]", |_| StackKind::Array)]
+    Close(StackKind),
 
     #[token(":")]
     Colon,
@@ -42,6 +38,21 @@ enum Token {
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
+enum StackKind {
+    Object,
+    Array,
+}
+
+impl StackKind {
+    fn start_context(self) -> ContextItem {
+        match self {
+            StackKind::Object => ContextItem::WaitingKey,
+            StackKind::Array => ContextItem::WaitingValue,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
 enum LeafValue {
     Bool(bool),
     Null,
@@ -50,9 +61,10 @@ enum LeafValue {
 }
 
 #[derive(Debug, PartialEq)]
-enum StackItem {
-    Object { span: RangeFrom<u32>, index: u32 },
-    Array { span: RangeFrom<u32>, index: u32 },
+struct StackItem {
+    kind: StackKind,
+    span: RangeFrom<u32>,
+    index: u32,
 }
 
 #[derive(Debug, PartialEq)]
@@ -64,6 +76,7 @@ enum ContextItem {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct Error {
     token: Token,
     span: Range<u32>,
@@ -102,95 +115,59 @@ pub fn parse(s: &str) -> Result<(), Error> {
                 }
                 context => bail!(context),
             },
-            // starting a new object, which can either be in a value or a key position
-            Token::BraceOpen => match context {
+            // starting a new object or array, which can only be in a value position
+            Token::Open(kind) => match context {
                 ContextItem::WaitingValue => {
-                    stack.push(StackItem::Object {
+                    stack.push(StackItem {
+                        kind,
                         span: span.start..,
                         index: 0,
                     });
-                    context = ContextItem::WaitingKey;
-                }
-                context => bail!(context),
-            },
-            // starting a new array, which can either be in a value or a key position
-            Token::BracketOpen => match context {
-                ContextItem::WaitingValue => {
-                    stack.push(StackItem::Array {
-                        span: span.start..,
-                        index: 0,
-                    });
-                    context = ContextItem::WaitingValue;
+                    context = kind.start_context();
                 }
                 context => bail!(context),
             },
 
-            // closing the current object
-            Token::BraceClose => {
-                let (object_start, index) = match stack.pop() {
-                    Some(StackItem::Object { span, index }) => (span.start, index),
+            // closing the current object or array
+            Token::Close(kind2) => {
+                let (start, index) = match stack.pop() {
+                    Some(StackItem { kind, span, index }) if kind == kind2 => (span.start, index),
                     Some(v) => {
                         stack.push(v);
                         bail!(context);
                     }
                     None => bail!(context),
                 };
+                let span = start..span.end;
 
                 match context {
-                    ContextItem::WaitingKey if index == 0 => {
-                        context = ContextItem::Value {
-                            span: object_start..span.end,
-                        };
+                    ContextItem::WaitingKey if kind2 == StackKind::Object && index == 0 => {
+                        context = ContextItem::Value { span };
+                    }
+                    ContextItem::WaitingValue if kind2 == StackKind::Array && index == 0 => {
+                        context = ContextItem::Value { span };
                     }
                     ContextItem::Value { .. } => {
-                        context = ContextItem::Value {
-                            span: object_start..span.end,
-                        };
+                        context = ContextItem::Value { span };
                     }
                     context => bail!(context),
                 }
             }
-            Token::BracketClose => {
-                let (array_start, index) = match stack.pop() {
-                    Some(StackItem::Array { span, index }) => (span.start, index),
-                    Some(v) => {
-                        stack.push(v);
-                        bail!(context);
-                    }
-                    None => bail!(context),
-                };
 
-                match context {
-                    ContextItem::WaitingValue if index == 0 => {
-                        context = ContextItem::Value {
-                            span: array_start..span.end,
-                        };
-                    }
-                    ContextItem::Value { .. } => {
-                        context = ContextItem::Value {
-                            span: array_start..span.end,
-                        };
-                    }
-                    context => bail!(context),
-                }
-            }
-            // commas may only follow key items
+            // colons may only follow key items
             Token::Colon => match context {
                 ContextItem::Key { .. } => context = ContextItem::WaitingValue,
                 context => bail!(context),
             },
             // commas may only follow value items if we are in an object or array
             Token::Comma => match context {
-                ContextItem::Value { .. } if !stack.is_empty() => match stack.last_mut().unwrap() {
-                    StackItem::Array { index, .. } => {
+                ContextItem::Value { .. } if !stack.is_empty() => {
+                    let StackItem { kind, index, .. } = stack.last_mut().unwrap();
+                    {
                         *index += 1;
-                        context = ContextItem::WaitingValue;
+                        context = kind.start_context();
                     }
-                    StackItem::Object { index, .. } => {
-                        *index += 1;
-                        context = ContextItem::WaitingKey;
-                    }
-                },
+                }
                 context => bail!(context),
             },
         }
@@ -204,7 +181,7 @@ mod tests {
     use std::time::Instant;
 
     #[test]
-    fn test() {
+    fn bench_this() {
         let src = include_str!("../testdata/kubernetes-oapi.json");
 
         let start = Instant::now();
@@ -215,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn test2() {
+    fn bench_serde_raw() {
         let src = include_str!("../testdata/kubernetes-oapi.json");
 
         let start = Instant::now();
@@ -226,5 +203,29 @@ mod tests {
             .unwrap();
         }
         dbg!(start.elapsed() / 1000);
+    }
+
+    #[test]
+    fn bench_serde() {
+        let src = include_str!("../testdata/kubernetes-oapi.json");
+
+        let start = Instant::now();
+        for _ in 0..1000 {
+            black_box(serde_json::from_str::<serde_json::value::Value>(black_box(
+                src,
+            )))
+            .unwrap();
+        }
+        dbg!(start.elapsed() / 1000);
+    }
+
+    #[test]
+    fn massive_stack() {
+        let cool_factor = 1_000_000;
+
+        let first_half = "[".repeat(cool_factor);
+        let second_half = "]".repeat(cool_factor);
+        let input = std::format!("{first_half}{second_half}");
+        crate::parse(&input).unwrap();
     }
 }
