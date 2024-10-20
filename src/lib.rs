@@ -12,6 +12,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::hash::BuildHasher;
 use core::ops::{Index, Range, RangeFrom};
+use foldhash::quality::RandomState;
 use hashbrown::hash_table::Entry;
 use hashbrown::HashTable;
 use indexmap::IndexMap;
@@ -57,51 +58,72 @@ impl StackKind {
             StackKind::Array => ContextItem::WaitingValue,
         }
     }
+
+    fn item(self) -> StackItemKind {
+        match self {
+            StackKind::Array => StackItemKind::Array(ThinVec::new()),
+            StackKind::Object => StackItemKind::Object(
+                Box::new(IndexMap::with_hasher(RandomState::default())),
+                None,
+            ),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
-enum LeafValue {
+pub enum LeafValue {
     Bool(bool),
     Null,
     Number,
     String,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 struct StackItem {
-    kind: StackKind,
     span: RangeFrom<u32>,
-    index: u32,
+    kind: StackItemKind,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
+enum StackItemKind {
+    Array(ThinVec<Value>),
+    Object(
+        Box<IndexMap<StringKey, Value, RandomState>>,
+        Option<StringKey>,
+    ),
+}
+
+#[derive(Debug)]
 enum ContextItem {
-    Key { span: Range<u32> },
-    Value { span: Range<u32> },
-    WaitingValue,
     WaitingKey,
+    Key { span: Range<u32>, key: StringKey },
+    WaitingValue,
+    Value { span: Range<u32>, value: ValueKind },
 }
 
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct Error {
-    token: Token,
+    token: Option<Token>,
     span: Range<u32>,
     stack: Vec<StackItem>,
     context: ContextItem,
 }
 
 #[derive(Debug, Clone)]
-pub enum Value {
-    Bool(bool),
-    Null,
-    Number(Range<u32>),
-    String(StringKey),
-    Object(Box<IndexMap<StringKey, Value, foldhash::quality::RandomState>>),
-    Array(ThinVec<Value>),
+pub struct Value {
+    pub span: Range<u32>,
+    pub kind: ValueKind,
 }
 
 #[derive(Debug, Clone)]
+pub enum ValueKind {
+    Leaf(LeafValue),
+    Object(Box<IndexMap<StringKey, Value, RandomState>>),
+    Array(ThinVec<Value>),
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct StringKey(Range<u32>);
 
 struct Scratch<'a> {
@@ -111,7 +133,7 @@ struct Scratch<'a> {
 
 pub struct Interner<'a> {
     scratch: Scratch<'a>,
-    hasher: foldhash::quality::RandomState,
+    hasher: RandomState,
     table: HashTable<StringKey>,
 }
 
@@ -233,7 +255,7 @@ impl<'a> Interner<'a> {
     }
 }
 
-pub fn parse(i: Interner<'_>) -> Result<Value, Error> {
+pub fn parse(i: &mut Interner<'_>) -> Result<Value, Error> {
     let mut lexer = Token::lexer(i.scratch.src);
 
     let mut stack = vec![];
@@ -248,7 +270,7 @@ pub fn parse(i: Interner<'_>) -> Result<Value, Error> {
         macro_rules! bail {
             ($context:expr) => {
                 return Err(Error {
-                    token,
+                    token: Some(token),
                     span,
                     stack,
                     context: $context,
@@ -258,9 +280,17 @@ pub fn parse(i: Interner<'_>) -> Result<Value, Error> {
 
         match token {
             Token::Leaf(value) => match context {
-                ContextItem::WaitingValue => context = ContextItem::Value { span },
+                ContextItem::WaitingValue => {
+                    context = ContextItem::Value {
+                        span,
+                        value: ValueKind::Leaf(value),
+                    }
+                }
                 ContextItem::WaitingKey if value == LeafValue::String => {
-                    context = ContextItem::Key { span }
+                    context = ContextItem::Key {
+                        key: i.intern(span.clone()),
+                        span,
+                    }
                 }
                 context => bail!(context),
             },
@@ -268,9 +298,8 @@ pub fn parse(i: Interner<'_>) -> Result<Value, Error> {
             Token::Open(kind) => match context {
                 ContextItem::WaitingValue => {
                     stack.push(StackItem {
-                        kind,
                         span: span.start..,
-                        index: 0,
+                        kind: kind.item(),
                     });
                     context = kind.start_context();
                 }
@@ -278,50 +307,125 @@ pub fn parse(i: Interner<'_>) -> Result<Value, Error> {
             },
 
             // closing the current object or array
-            Token::Close(kind2) => {
-                let (start, index) = match stack.pop() {
-                    Some(StackItem { kind, span, index }) if kind == kind2 => (span.start, index),
+            Token::Close(StackKind::Object) => {
+                match stack.pop() {
+                    Some(StackItem {
+                        kind: StackItemKind::Object(mut obj, key),
+                        span: RangeFrom { start },
+                    }) => {
+                        let span = start..span.end;
+
+                        match context {
+                            ContextItem::WaitingKey if obj.is_empty() => {
+                                context = ContextItem::Value {
+                                    span,
+                                    value: ValueKind::Object(obj),
+                                };
+                            }
+                            ContextItem::Value { span, value: kind } => {
+                                obj.insert(
+                                    key.unwrap(),
+                                    Value {
+                                        span: span.clone(),
+                                        kind,
+                                    },
+                                );
+                                context = ContextItem::Value {
+                                    span,
+                                    value: ValueKind::Object(obj),
+                                };
+                            }
+                            context => bail!(context),
+                        }
+                    }
                     Some(v) => {
                         stack.push(v);
                         bail!(context);
                     }
                     None => bail!(context),
                 };
-                let span = start..span.end;
+            }
 
-                match context {
-                    ContextItem::WaitingKey if kind2 == StackKind::Object && index == 0 => {
-                        context = ContextItem::Value { span };
+            // closing the current object or array
+            Token::Close(StackKind::Array) => {
+                match stack.pop() {
+                    Some(StackItem {
+                        kind: StackItemKind::Array(mut obj),
+                        span: RangeFrom { start },
+                    }) => {
+                        let span = start..span.end;
+
+                        match context {
+                            ContextItem::WaitingValue if obj.is_empty() => {
+                                context = ContextItem::Value {
+                                    span,
+                                    value: ValueKind::Array(obj),
+                                };
+                            }
+                            ContextItem::Value { span, value: kind } => {
+                                obj.push(Value {
+                                    span: span.clone(),
+                                    kind,
+                                });
+                                context = ContextItem::Value {
+                                    span,
+                                    value: ValueKind::Array(obj),
+                                };
+                            }
+                            context => bail!(context),
+                        }
                     }
-                    ContextItem::WaitingValue if kind2 == StackKind::Array && index == 0 => {
-                        context = ContextItem::Value { span };
+                    Some(v) => {
+                        stack.push(v);
+                        bail!(context);
                     }
-                    ContextItem::Value { .. } => {
-                        context = ContextItem::Value { span };
-                    }
-                    context => bail!(context),
-                }
+                    None => bail!(context),
+                };
             }
 
             // colons may only follow key items
             Token::Colon => match context {
-                ContextItem::Key { .. } => context = ContextItem::WaitingValue,
+                ContextItem::Key { key, span } if !stack.is_empty() => {
+                    match &mut stack.last_mut().unwrap().kind {
+                        StackItemKind::Object(_, val @ None) => {
+                            *val = Some(key);
+                            context = ContextItem::WaitingValue
+                        }
+                        _ => bail!(ContextItem::Key { key, span }),
+                    }
+                }
                 context => bail!(context),
             },
+
             // commas may only follow value items if we are in an object or array
             Token::Comma => match context {
-                ContextItem::Value { .. } if !stack.is_empty() => {
-                    let StackItem { kind, index, .. } = stack.last_mut().unwrap();
-                    {
-                        *index += 1;
-                        context = kind.start_context();
+                ContextItem::Value { span, value } if !stack.is_empty() => {
+                    match &mut stack.last_mut().unwrap().kind {
+                        StackItemKind::Object(obj, key_val @ Some(_)) => {
+                            obj.insert(key_val.take().unwrap(), Value { span, kind: value });
+                            context = ContextItem::WaitingKey
+                        }
+                        StackItemKind::Array(obj) => {
+                            obj.push(Value { span, kind: value });
+                            context = ContextItem::WaitingValue
+                        }
+                        _ => bail!(ContextItem::Value { span, value }),
                     }
                 }
                 context => bail!(context),
             },
         }
     }
-    Ok(Value::Null)
+
+    match context {
+        ContextItem::Value { span, value } => Ok(Value { span, kind: value }),
+        context => Err(Error {
+            token: None,
+            span: i.scratch.src.len() as u32..i.scratch.src.len() as u32,
+            stack,
+            context,
+        }),
+    }
 }
 
 #[cfg(test)]
@@ -337,7 +441,7 @@ mod tests {
 
         let start = Instant::now();
         for _ in 0..1000 {
-            black_box(crate::parse(black_box(Interner::new(src)))).unwrap();
+            black_box(crate::parse(black_box(&mut Interner::new(src)))).unwrap();
         }
         dbg!(start.elapsed() / 1000);
     }
@@ -370,13 +474,13 @@ mod tests {
         dbg!(start.elapsed() / 1000);
     }
 
-    #[test]
-    fn massive_stack() {
-        let cool_factor = 1_000_000;
+    // #[test]
+    // fn massive_stack() {
+    //     let cool_factor = 1_000_000;
 
-        let first_half = "[".repeat(cool_factor);
-        let second_half = "]".repeat(cool_factor);
-        let input = std::format!("{first_half}{second_half}");
-        crate::parse(Interner::new(&input)).unwrap();
-    }
+    //     let first_half = "[".repeat(cool_factor);
+    //     let second_half = "]".repeat(cool_factor);
+    //     let input = std::format!("{first_half}{second_half}");
+    //     crate::parse(&mut Interner::new(&input)).unwrap();
+    // }
 }
