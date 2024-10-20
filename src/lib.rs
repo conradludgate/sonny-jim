@@ -156,7 +156,7 @@ impl<'a> Arena<'a> {
         }
     }
 
-    fn intern_string(&mut self, span: Range<u32>) -> StringKey {
+    fn intern_string(&mut self, span: Range<u32>) -> Result<StringKey, ()> {
         let Self {
             scratch,
             hasher,
@@ -183,6 +183,7 @@ impl<'a> Arena<'a> {
                 .scratch
                 .push_str(&scratch.src[start..start + escape]);
 
+            start += escape;
             start += 1;
             let ctrl = b[start];
             start += 1;
@@ -201,7 +202,7 @@ impl<'a> Arena<'a> {
                     // \u1234 -> U+1234
                     // TODO: maybe support utf16
 
-                    let hex_bytes: [u8; 4] = *b
+                    let hex_bytes: [u8; 4] = *b[start..]
                         .first_chunk()
                         .expect("logos should have validated that 4 hex bytes follow the \\u");
                     let mut code = [0; 2];
@@ -211,12 +212,12 @@ impl<'a> Arena<'a> {
                     if let Some(c) = char::from_u32(u16::from_be_bytes(code) as u32) {
                         scratch.scratch.push(c);
                     } else {
-                        todo!("error")
+                        return Err(());
                     }
 
                     start += 4;
                 }
-                _ => unreachable!("escape character has been validated by logos"),
+                x => unreachable!("escape character {:?} has been validated by logos", x as char),
             }
         }
 
@@ -239,9 +240,9 @@ impl<'a> Arena<'a> {
         ) {
             Entry::Occupied(occupied_entry) => {
                 scratch.scratch.truncate(scratch_start);
-                occupied_entry.get().clone()
+                Ok(occupied_entry.get().clone())
             }
-            Entry::Vacant(vacant_entry) => vacant_entry.insert(StringKey(span)).get().clone(),
+            Entry::Vacant(vacant_entry) => Ok(vacant_entry.insert(StringKey(span)).get().clone()),
         }
     }
 }
@@ -256,8 +257,21 @@ pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
     let mut context = ContextItem::WaitingValue;
 
     loop {
-        let Some(token) = lexer.next() else { break };
-        let token = token.unwrap();
+        let token = match lexer.next() {
+            Some(Ok(token)) => token,
+            Some(Err(_)) => {
+                let span = lexer.span();
+                let span = (span.start as u32)..(span.end as u32);
+                return Err(Error {
+                    token: None,
+                    span,
+                    stack,
+                    context,
+                });
+            }
+            None => break,
+        };
+
         let span = lexer.span();
         let span = (span.start as u32)..(span.end as u32);
 
@@ -282,7 +296,10 @@ pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
                 }
                 ContextItem::WaitingKey if value == LeafValue::String => {
                     context = ContextItem::Key {
-                        key: i.intern_string(span.clone()),
+                        key: match i.intern_string(span.clone()) {
+                            Ok(key) => key,
+                            Err(()) => bail!(context),
+                        },
                         span,
                     }
                 }
