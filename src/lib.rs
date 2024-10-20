@@ -14,7 +14,6 @@ use core::ops::{Index, Range, RangeFrom};
 use foldhash::quality::RandomState;
 use hashbrown::hash_table::Entry;
 use hashbrown::HashTable;
-use thin_vec::ThinVec;
 
 use logos::Logos;
 
@@ -56,13 +55,6 @@ impl StackKind {
             StackKind::Array => ContextItem::WaitingValue,
         }
     }
-
-    fn item(self) -> StackItemKind {
-        match self {
-            StackKind::Array => StackItemKind::Array(ThinVec::new()),
-            StackKind::Object => StackItemKind::Object(ThinVec::new(), ThinVec::new()),
-        }
-    }
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -81,8 +73,8 @@ struct StackItem {
 
 #[derive(Debug)]
 enum StackItemKind {
-    Array(ThinVec<Value>),
-    Object(ThinVec<Value>, ThinVec<StringKey>),
+    Array(u32),
+    Object(u32, u32),
 }
 
 #[derive(Debug)]
@@ -186,9 +178,9 @@ impl<'a> Arena<'a> {
         } = self;
 
         // check that this actually points to a string...
-        debug_assert_eq!(scratch.src.as_bytes()[span.start as usize], b'"');
-        debug_assert_eq!(scratch.src.as_bytes()[span.end as usize], b'"');
         debug_assert!(span.start + 2 <= span.end);
+        debug_assert_eq!(scratch.src.as_bytes()[span.start as usize], b'"');
+        debug_assert_eq!(scratch.src.as_bytes()[span.end as usize - 1], b'"');
 
         let mut start = span.start as usize + 1;
         let end = span.end as usize - 1;
@@ -205,8 +197,10 @@ impl<'a> Arena<'a> {
                 .push_str(&scratch.src[start..start + escape]);
 
             start += 1;
+            let ctrl = b[start];
+            start += 1;
 
-            match b[start] {
+            match ctrl {
                 b'"' => scratch.scratch.push('"'),
                 b'\\' => scratch.scratch.push('\\'),
                 b'/' => scratch.scratch.push('/'),
@@ -232,6 +226,8 @@ impl<'a> Arena<'a> {
                     } else {
                         todo!("error")
                     }
+
+                    start += 4;
                 }
                 _ => unreachable!("escape character has been validated by logos"),
             }
@@ -267,6 +263,9 @@ pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
     let mut lexer = Token::lexer(i.scratch.src);
 
     let mut stack = vec![];
+    let mut value_stack = vec![];
+    let mut key_stack = vec![];
+
     let mut context = ContextItem::WaitingValue;
 
     loop {
@@ -307,7 +306,13 @@ pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
                 ContextItem::WaitingValue => {
                     stack.push(StackItem {
                         span: span.start..,
-                        kind: kind.item(),
+                        kind: match kind {
+                            StackKind::Object => StackItemKind::Object(
+                                value_stack.len() as u32,
+                                key_stack.len() as u32,
+                            ),
+                            StackKind::Array => StackItemKind::Array(value_stack.len() as u32),
+                        },
                     });
                     context = kind.start_context();
                 }
@@ -318,13 +323,13 @@ pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
             Token::Close(StackKind::Object) => {
                 match stack.pop() {
                     Some(StackItem {
-                        kind: StackItemKind::Object(mut vals, keys),
+                        kind: StackItemKind::Object(vindex, kindex),
                         span: RangeFrom { start },
                     }) => {
                         let span = start..span.end;
 
                         match context {
-                            ContextItem::WaitingKey if vals.is_empty() => {
+                            ContextItem::WaitingKey if value_stack.len() == vindex as usize => {
                                 context = ContextItem::Value {
                                     span,
                                     value: ValueKind::Object(Object {
@@ -334,17 +339,17 @@ pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
                                 };
                             }
                             ContextItem::Value { span, value: kind } => {
-                                vals.push(Value {
+                                value_stack.push(Value {
                                     span: span.clone(),
                                     kind,
                                 });
 
                                 let vi = i.values.len();
-                                i.values.extend(vals);
+                                i.values.extend(value_stack.drain(vindex as usize..));
                                 let vj = i.values.len();
 
                                 let ki = i.keys.len();
-                                i.keys.extend(keys);
+                                i.keys.extend(key_stack.drain(kindex as usize..));
                                 let kj = i.keys.len();
 
                                 context = ContextItem::Value {
@@ -370,26 +375,26 @@ pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
             Token::Close(StackKind::Array) => {
                 match stack.pop() {
                     Some(StackItem {
-                        kind: StackItemKind::Array(mut vals),
+                        kind: StackItemKind::Array(vindex),
                         span: RangeFrom { start },
                     }) => {
                         let span = start..span.end;
 
                         match context {
-                            ContextItem::WaitingValue if vals.is_empty() => {
+                            ContextItem::WaitingValue if value_stack.len() == vindex as usize => {
                                 context = ContextItem::Value {
                                     span,
                                     value: ValueKind::Array(Array { values: 0..0 }),
                                 };
                             }
                             ContextItem::Value { span, value: kind } => {
-                                vals.push(Value {
+                                value_stack.push(Value {
                                     span: span.clone(),
                                     kind,
                                 });
 
                                 let vi = i.values.len();
-                                i.values.extend(vals);
+                                i.values.extend(value_stack.drain(vindex as usize..));
                                 let vj = i.values.len();
 
                                 context = ContextItem::Value {
@@ -414,8 +419,8 @@ pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
             Token::Colon => match context {
                 ContextItem::Key { key, span } if !stack.is_empty() => {
                     match &mut stack.last_mut().unwrap().kind {
-                        StackItemKind::Object(_, keys) => {
-                            keys.push(key);
+                        StackItemKind::Object(_, _) => {
+                            key_stack.push(key);
                             context = ContextItem::WaitingValue
                         }
                         _ => bail!(ContextItem::Key { key, span }),
@@ -428,12 +433,12 @@ pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
             Token::Comma => match context {
                 ContextItem::Value { span, value } if !stack.is_empty() => {
                     match &mut stack.last_mut().unwrap().kind {
-                        StackItemKind::Object(vals, _) => {
-                            vals.push(Value { span, kind: value });
+                        StackItemKind::Object(_, _) => {
+                            value_stack.push(Value { span, kind: value });
                             context = ContextItem::WaitingKey
                         }
-                        StackItemKind::Array(vals) => {
-                            vals.push(Value { span, kind: value });
+                        StackItemKind::Array(_) => {
+                            value_stack.push(Value { span, kind: value });
                             context = ContextItem::WaitingValue
                         }
                     }
@@ -509,5 +514,34 @@ mod tests {
         let input = std::format!("{first_half}{second_half}");
 
         crate::parse(&mut Arena::new(&input)).unwrap();
+    }
+
+    #[test]
+    fn snapshot() {
+        let data = r#"{
+            "definitions": {
+                "io.k8s.api.admissionregistration.v1.AuditAnnotation": {
+                    "description": "AuditAnnotation describes how to produce an audit annotation for an API request.",
+                    "properties": {
+                    "key": {
+                        "description": "key specifies the audit annotation key. The audit annotation keys of a ValidatingAdmissionPolicy must be unique. The key must be a qualified name ([A-Za-z0-9][-A-Za-z0-9_.]*) no more than 63 bytes in length.\n\nThe key is combined with the resource name of the ValidatingAdmissionPolicy to construct an audit annotation key: \"{ValidatingAdmissionPolicy name}/{key}\".\n\nIf an admission webhook uses the same resource name as this ValidatingAdmissionPolicy and the same audit annotation key, the annotation key will be identical. In this case, the first annotation written with the key will be included in the audit event and all subsequent annotations with the same key will be discarded.\n\nRequired.",
+                        "type": "string"
+                    },
+                    "valueExpression": {
+                        "description": "valueExpression represents the expression which is evaluated by CEL to produce an audit annotation value. The expression must evaluate to either a string or null value. If the expression evaluates to a string, the audit annotation is included with the string value. If the expression evaluates to null or empty string the audit annotation will be omitted. The valueExpression may be no longer than 5kb in length. If the result of the valueExpression is more than 10kb in length, it will be truncated to 10kb.\n\nIf multiple ValidatingAdmissionPolicyBinding resources match an API request, then the valueExpression will be evaluated for each binding. All unique values produced by the valueExpressions will be joined together in a comma-separated list.\n\nRequired.",
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "key",
+                    "valueExpression"
+                ],
+                "type": "object"
+            }
+        }"#;
+
+        let mut arena = Arena::new(data);
+        let parsed = crate::parse(&mut arena).unwrap();
+        insta::assert_debug_snapshot!((parsed, arena.scratch.scratch, arena.values, arena.keys));
     }
 }

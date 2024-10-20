@@ -1,0 +1,145 @@
+---
+source: src/lib.rs
+expression: "(parsed, arena.scratch.scratch, arena.values, arena.keys)"
+---
+(
+    Value {
+        span: 2166..2174,
+        kind: Object(
+            Object {
+                keys: 10..11,
+                values: 12..13,
+            },
+        ),
+    },
+    "",
+    [
+        Value {
+            span: 327..1032,
+            kind: Leaf(
+                String,
+            ),
+        },
+        Value {
+            span: 1066..1074,
+            kind: Leaf(
+                String,
+            ),
+        },
+        Value {
+            span: 1178..1944,
+            kind: Leaf(
+                String,
+            ),
+        },
+        Value {
+            span: 1978..1986,
+            kind: Leaf(
+                String,
+            ),
+        },
+        Value {
+            span: 1066..1074,
+            kind: Object(
+                Object {
+                    keys: 0..2,
+                    values: 0..2,
+                },
+            ),
+        },
+        Value {
+            span: 1978..1986,
+            kind: Object(
+                Object {
+                    keys: 2..4,
+                    values: 2..4,
+                },
+            ),
+        },
+        Value {
+            span: 2078..2083,
+            kind: Leaf(
+                String,
+            ),
+        },
+        Value {
+            span: 2105..2122,
+            kind: Leaf(
+                String,
+            ),
+        },
+        Value {
+            span: 139..221,
+            kind: Leaf(
+                String,
+            ),
+        },
+        Value {
+            span: 1978..1986,
+            kind: Object(
+                Object {
+                    keys: 4..6,
+                    values: 4..6,
+                },
+            ),
+        },
+        Value {
+            span: 2105..2122,
+            kind: Array(
+                Array {
+                    values: 6..8,
+                },
+            ),
+        },
+        Value {
+            span: 2166..2174,
+            kind: Leaf(
+                String,
+            ),
+        },
+        Value {
+            span: 2166..2174,
+            kind: Object(
+                Object {
+                    keys: 6..10,
+                    values: 8..12,
+                },
+            ),
+        },
+    ],
+    [
+        StringKey(
+            125..136,
+        ),
+        StringKey(
+            1059..1063,
+        ),
+        StringKey(
+            125..136,
+        ),
+        StringKey(
+            1059..1063,
+        ),
+        StringKey(
+            280..283,
+        ),
+        StringKey(
+            1119..1134,
+        ),
+        StringKey(
+            125..136,
+        ),
+        StringKey(
+            244..254,
+        ),
+        StringKey(
+            2045..2053,
+        ),
+        StringKey(
+            1059..1063,
+        ),
+        StringKey(
+            48..99,
+        ),
+    ],
+)
