@@ -1,0 +1,10 @@
+[package]
+name = "sonny-jim"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+logos = "0.14"
+
+[dev-dependencies]
+serde_json = { version = "1", features = ["raw_value"] }
