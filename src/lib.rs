@@ -20,13 +20,15 @@ use logos::Logos;
 #[derive(Logos, Debug, PartialEq)]
 #[logos(skip r"[ \t\r\n]+")] // Ignore this regex pattern between tokens
 enum Token {
-    #[token("{", |_| StackKind::Object)]
-    #[token("[", |_| StackKind::Array)]
-    Open(StackKind),
+    #[token("{")]
+    OpenObject,
+    #[token("[")]
+    OpenArray,
 
-    #[token("}", |_| StackKind::Object)]
-    #[token("]", |_| StackKind::Array)]
-    Close(StackKind),
+    #[token("}")]
+    CloseObject,
+    #[token("]")]
+    CloseArray,
 
     #[token(":")]
     Colon,
@@ -40,21 +42,6 @@ enum Token {
     #[regex(r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?", |_| LeafValue::Number)]
     #[regex(r#""([^"\\]|\\["\\/bnfrt]|\\u[a-fA-F0-9]{4})*""#, |_| LeafValue::String)]
     Leaf(LeafValue),
-}
-
-#[derive(Debug, PartialEq, Clone, Copy)]
-enum StackKind {
-    Object,
-    Array,
-}
-
-impl StackKind {
-    fn start_context(self) -> ContextItem {
-        match self {
-            StackKind::Object => ContextItem::WaitingKey,
-            StackKind::Array => ContextItem::WaitingValue,
-        }
-    }
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -302,25 +289,32 @@ pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
                 context => bail!(context),
             },
             // starting a new object or array, which can only be in a value position
-            Token::Open(kind) => match context {
+            Token::OpenObject => match context {
                 ContextItem::WaitingValue => {
                     stack.push(StackItem {
                         span: span.start..,
-                        kind: match kind {
-                            StackKind::Object => StackItemKind::Object(
-                                value_stack.len() as u32,
-                                key_stack.len() as u32,
-                            ),
-                            StackKind::Array => StackItemKind::Array(value_stack.len() as u32),
-                        },
+                        kind: StackItemKind::Object(
+                            value_stack.len() as u32,
+                            key_stack.len() as u32,
+                        ),
                     });
-                    context = kind.start_context();
+                    context = ContextItem::WaitingKey;
+                }
+                context => bail!(context),
+            },
+            Token::OpenArray => match context {
+                ContextItem::WaitingValue => {
+                    stack.push(StackItem {
+                        span: span.start..,
+                        kind: StackItemKind::Array(value_stack.len() as u32),
+                    });
+                    context = ContextItem::WaitingValue;
                 }
                 context => bail!(context),
             },
 
             // closing the current object or array
-            Token::Close(StackKind::Object) => {
+            Token::CloseObject => {
                 match stack.pop() {
                     Some(StackItem {
                         kind: StackItemKind::Object(vindex, kindex),
@@ -372,7 +366,7 @@ pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
             }
 
             // closing the current object or array
-            Token::Close(StackKind::Array) => {
+            Token::CloseArray => {
                 match stack.pop() {
                     Some(StackItem {
                         kind: StackItemKind::Array(vindex),
