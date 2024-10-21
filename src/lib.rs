@@ -269,6 +269,37 @@ enum PollParse {
 }
 
 impl Parser<'_, '_> {
+    #[cold]
+    fn early_eof(&mut self, context: ContextItem) -> Error {
+        let src = self.arena.scratch.src;
+        Error {
+            token: None,
+            span: src.len() as u32..src.len() as u32,
+            stack: core::mem::take(&mut self.stack),
+            context,
+        }
+    }
+
+    #[cold]
+    fn parse_error(&mut self, context: ContextItem, token: Token, span: Range<u32>) -> Error {
+        Error {
+            token: Some(token),
+            span,
+            stack: core::mem::take(&mut self.stack),
+            context,
+        }
+    }
+
+    #[cold]
+    fn token_error(&mut self, context: ContextItem, span: Range<u32>) -> Error {
+        Error {
+            token: None,
+            span,
+            stack: core::mem::take(&mut self.stack),
+            context,
+        }
+    }
+
     #[inline]
     fn step(&mut self, mut context: ContextItem) -> Result<PollParse, Error> {
         let Self {
@@ -281,29 +312,16 @@ impl Parser<'_, '_> {
 
         let token = match lexer.next() {
             Some(Ok(token)) => token,
-            Some(Err(_)) => {
+            Some(Err(())) => {
                 let span = lexer.span();
                 let span = (span.start as u32)..(span.end as u32);
-                return Err(Error {
-                    token: None,
-                    span,
-                    stack: core::mem::take(stack),
-                    context,
-                });
+                return Err(self.token_error(context, span));
             }
             None => match context {
                 ContextItem::Value { span, value } => {
                     return Ok(PollParse::Ready(Value { span, kind: value }))
                 }
-                context => {
-                    let src = arena.scratch.src;
-                    return Err(Error {
-                        token: None,
-                        span: src.len() as u32..src.len() as u32,
-                        stack: core::mem::take(stack),
-                        context,
-                    });
-                }
+                context => return Err(self.early_eof(context)),
             },
         };
 
@@ -312,12 +330,7 @@ impl Parser<'_, '_> {
 
         macro_rules! bail {
             ($context:expr) => {
-                return Err(Error {
-                    token: Some(token),
-                    span,
-                    stack: core::mem::take(stack),
-                    context: $context,
-                })
+                return Err(self.parse_error($context, token, span))
             };
         }
 
