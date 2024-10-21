@@ -217,7 +217,10 @@ impl<'a> Arena<'a> {
 
                     start += 4;
                 }
-                x => unreachable!("escape character {:?} has been validated by logos", x as char),
+                x => unreachable!(
+                    "escape character {:?} has been validated by logos",
+                    x as char
+                ),
             }
         }
 
@@ -250,10 +253,15 @@ impl<'a> Arena<'a> {
 pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
     let mut lexer = Token::lexer(i.scratch.src);
 
+    // tracks which object or array we are in
     let mut stack = vec![];
+    // values used by the current/parent objects or arrays.
     let mut value_stack = vec![];
+    // keys used by the current/parent objects
     let mut key_stack = vec![];
 
+    // what kind of token are we expecting.
+    // to start, we expect a value item.
     let mut context = ContextItem::WaitingValue;
 
     loop {
@@ -288,12 +296,14 @@ pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
 
         match token {
             Token::Leaf(value) => match context {
+                // in value position, a leaf value is always ok
                 ContextItem::WaitingValue => {
                     context = ContextItem::Value {
                         span,
                         value: ValueKind::Leaf(value),
                     }
                 }
+                // in a key position, only string values are ok
                 ContextItem::WaitingKey if value == LeafValue::String => {
                     context = ContextItem::Key {
                         key: match i.intern_string(span.clone()) {
@@ -305,7 +315,7 @@ pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
                 }
                 context => bail!(context),
             },
-            // starting a new object or array, which can only be in a value position
+            // starting a new object, which can only be in a value position
             Token::OpenObject => match context {
                 ContextItem::WaitingValue => {
                     stack.push(StackItem {
@@ -319,6 +329,7 @@ pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
                 }
                 context => bail!(context),
             },
+            // starting a new array, which can only be in a value position
             Token::OpenArray => match context {
                 ContextItem::WaitingValue => {
                     stack.push(StackItem {
@@ -330,7 +341,14 @@ pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
                 context => bail!(context),
             },
 
-            // closing the current object or array
+            // closing the current object
+            // the stack must contain an object item
+            // Closing an object can occur if:
+            // * It immediatelly follows a `OpenObject` (eg `{}`)
+            // * It immediatelly follows a value, (eg `{ "key": "value" }`)
+            // We codify this as:
+            // * Acceptable before a key position iff the object is empty
+            // * Acceptable after a value positon
             Token::CloseObject => {
                 match stack.pop() {
                     Some(StackItem {
@@ -382,7 +400,14 @@ pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
                 };
             }
 
-            // closing the current object or array
+            // closing the current array
+            // the stack must contain an array item
+            // Closing an array can occur if:
+            // * It immediatelly follows a `OpenArray` (eg `[]`)
+            // * It immediatelly follows a value, (eg `["value"]`)
+            // We codify this as:
+            // * Acceptable before a value position iff the array is empty
+            // * Acceptable after a value positon
             Token::CloseArray => {
                 match stack.pop() {
                     Some(StackItem {
@@ -443,15 +468,10 @@ pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
             // commas may only follow value items if we are in an object or array
             Token::Comma => match context {
                 ContextItem::Value { span, value } if !stack.is_empty() => {
-                    match &mut stack.last_mut().unwrap().kind {
-                        StackItemKind::Object(_, _) => {
-                            value_stack.push(Value { span, kind: value });
-                            context = ContextItem::WaitingKey
-                        }
-                        StackItemKind::Array(_) => {
-                            value_stack.push(Value { span, kind: value });
-                            context = ContextItem::WaitingValue
-                        }
+                    value_stack.push(Value { span, kind: value });
+                    match stack.last_mut().unwrap().kind {
+                        StackItemKind::Object(_, _) => context = ContextItem::WaitingKey,
+                        StackItemKind::Array(_) => context = ContextItem::WaitingValue,
                     }
                 }
                 context => bail!(context),
@@ -477,25 +497,23 @@ mod tests {
 
     use crate::Arena;
 
+    const KUBE: &str = include_str!("../testdata/kubernetes-oapi.json");
+
     #[test]
     fn bench_this() {
-        let src = include_str!("../testdata/kubernetes-oapi.json");
-
         let start = Instant::now();
         for _ in 0..1000 {
-            black_box(crate::parse(black_box(&mut Arena::new(src)))).unwrap();
+            black_box(crate::parse(black_box(&mut Arena::new(KUBE)))).unwrap();
         }
         dbg!(start.elapsed() / 1000);
     }
 
     #[test]
     fn bench_serde_raw() {
-        let src = include_str!("../testdata/kubernetes-oapi.json");
-
         let start = Instant::now();
         for _ in 0..1000 {
             black_box(serde_json::from_str::<&serde_json::value::RawValue>(
-                black_box(src),
+                black_box(KUBE),
             ))
             .unwrap();
         }
@@ -504,12 +522,10 @@ mod tests {
 
     #[test]
     fn bench_serde() {
-        let src = include_str!("../testdata/kubernetes-oapi.json");
-
         let start = Instant::now();
         for _ in 0..1000 {
             black_box(serde_json::from_str::<serde_json::value::Value>(black_box(
-                src,
+                KUBE,
             )))
             .unwrap();
         }
