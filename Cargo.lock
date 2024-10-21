@@ -134,7 +134,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "regex-syntax",
- "syn",
+ "syn 2.0.81",
 ]
 
 [[package]]
@@ -151,6 +151,26 @@ name = "memchr"
 version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
+
+[[package]]
+name = "pollster"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22686f4785f02a4fcc856d3b3bb19bf6c8160d103f7a99cc258bddd0251dc7f2"
+dependencies = [
+ "pollster-macro",
+]
+
+[[package]]
+name = "pollster-macro"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ea78f0ef4193055a4b09814ce6bcb572ad1174d6023e2f00a9ea1a798d18d301"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
 
 [[package]]
 name = "proc-macro2"
@@ -199,7 +219,7 @@ checksum = "243902eda00fad750862fc144cea25caca5e20d615af0a81bee94ca738f1df1f"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.81",
 ]
 
 [[package]]
@@ -231,7 +251,19 @@ dependencies = [
  "insta",
  "logos",
  "memchr",
+ "pollster",
  "serde_json",
+]
+
+[[package]]
+name = "syn"
+version = "1.0.109"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b64191b275b66ffe2469e8af2c1cfe3bafa67b529ead792a6d0160888b4237"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
 ]
 
 [[package]]

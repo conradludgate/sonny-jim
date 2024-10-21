@@ -13,3 +13,4 @@ hex = "0.4"
 [dev-dependencies]
 insta = "1.40.0"
 serde_json = { version = "1", features = ["raw_value", "indexmap"] }
+pollster = { version = "0.3", features = ["macro"] }

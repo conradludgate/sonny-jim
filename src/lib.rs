@@ -11,11 +11,12 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::hash::BuildHasher;
 use core::ops::{Index, Range, RangeFrom};
+use core::task::Poll;
 use foldhash::quality::RandomState;
 use hashbrown::hash_table::Entry;
 use hashbrown::HashTable;
 
-use logos::Logos;
+use logos::{Lexer, Logos};
 
 #[derive(Logos, Debug, PartialEq)]
 #[logos(skip r"[ \t\r\n]+")] // Ignore this regex pattern between tokens
@@ -64,7 +65,7 @@ enum StackItemKind {
     Object(u32, u32),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum ContextItem {
     WaitingKey,
     Key { span: Range<u32>, key: StringKey },
@@ -250,21 +251,34 @@ impl<'a> Arena<'a> {
     }
 }
 
-pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
-    let mut lexer = Token::lexer(i.scratch.src);
+struct Parser<'a, 's> {
+    arena: &'a mut Arena<'s>,
+    lexer: Lexer<'s, Token>,
 
-    // tracks which object or array we are in
-    let mut stack = vec![];
-    // values used by the current/parent objects or arrays.
-    let mut value_stack = vec![];
-    // keys used by the current/parent objects
-    let mut key_stack = vec![];
+    /// tracks which object or array we are in
+    stack: Vec<StackItem>,
+    /// values used by the current/parent objects or arrays.
+    value_stack: Vec<Value>,
+    /// keys used by the current/parent objects
+    key_stack: Vec<StringKey>,
+}
 
-    // what kind of token are we expecting.
-    // to start, we expect a value item.
-    let mut context = ContextItem::WaitingValue;
+enum PollParse {
+    Ready(Value),
+    Pending(ContextItem),
+}
 
-    loop {
+impl Parser<'_, '_> {
+    #[inline]
+    fn step(&mut self, mut context: ContextItem) -> Result<PollParse, Error> {
+        let Self {
+            arena,
+            lexer,
+            stack,
+            value_stack,
+            key_stack,
+        } = self;
+
         let token = match lexer.next() {
             Some(Ok(token)) => token,
             Some(Err(_)) => {
@@ -273,11 +287,24 @@ pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
                 return Err(Error {
                     token: None,
                     span,
-                    stack,
+                    stack: core::mem::take(stack),
                     context,
                 });
             }
-            None => break,
+            None => match context {
+                ContextItem::Value { span, value } => {
+                    return Ok(PollParse::Ready(Value { span, kind: value }))
+                }
+                context => {
+                    let src = arena.scratch.src;
+                    return Err(Error {
+                        token: None,
+                        span: src.len() as u32..src.len() as u32,
+                        stack: core::mem::take(stack),
+                        context,
+                    });
+                }
+            },
         };
 
         let span = lexer.span();
@@ -288,7 +315,7 @@ pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
                 return Err(Error {
                     token: Some(token),
                     span,
-                    stack,
+                    stack: core::mem::take(stack),
                     context: $context,
                 })
             };
@@ -306,7 +333,7 @@ pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
                 // in a key position, only string values are ok
                 ContextItem::WaitingKey if value == LeafValue::String => {
                     context = ContextItem::Key {
-                        key: match i.intern_string(span.clone()) {
+                        key: match arena.intern_string(span.clone()) {
                             Ok(key) => key,
                             Err(()) => bail!(context),
                         },
@@ -373,13 +400,13 @@ pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
                                     kind,
                                 });
 
-                                let vi = i.values.len();
-                                i.values.extend(value_stack.drain(vindex as usize..));
-                                let vj = i.values.len();
+                                let vi = arena.values.len();
+                                arena.values.extend(value_stack.drain(vindex as usize..));
+                                let vj = arena.values.len();
 
-                                let ki = i.keys.len();
-                                i.keys.extend(key_stack.drain(kindex as usize..));
-                                let kj = i.keys.len();
+                                let ki = arena.keys.len();
+                                arena.keys.extend(key_stack.drain(kindex as usize..));
+                                let kj = arena.keys.len();
 
                                 context = ContextItem::Value {
                                     span,
@@ -429,9 +456,9 @@ pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
                                     kind,
                                 });
 
-                                let vi = i.values.len();
-                                i.values.extend(value_stack.drain(vindex as usize..));
-                                let vj = i.values.len();
+                                let vi = arena.values.len();
+                                arena.values.extend(value_stack.drain(vindex as usize..));
+                                let vj = arena.values.len();
 
                                 context = ContextItem::Value {
                                     span,
@@ -477,17 +504,76 @@ pub fn parse(i: &mut Arena<'_>) -> Result<Value, Error> {
                 context => bail!(context),
             },
         }
+
+        Ok(PollParse::Pending(context))
     }
 
-    match context {
-        ContextItem::Value { span, value } => Ok(Value { span, kind: value }),
-        context => Err(Error {
-            token: None,
-            span: i.scratch.src.len() as u32..i.scratch.src.len() as u32,
-            stack,
-            context,
-        }),
+    fn step_while(
+        &mut self,
+        mut f: impl FnMut() -> bool,
+        mut context: ContextItem,
+    ) -> Result<PollParse, Error> {
+        while f() {
+            match self.step(context)? {
+                PollParse::Ready(value) => return Ok(PollParse::Ready(value)),
+                PollParse::Pending(c) => context = c,
+            }
+        }
+        Ok(PollParse::Pending(context))
     }
+}
+
+pub fn parse(arena: &mut Arena<'_>) -> Result<Value, Error> {
+    let lexer = Token::lexer(arena.scratch.src);
+
+    let mut parser = Parser {
+        arena,
+        lexer,
+        stack: vec![],
+        value_stack: vec![],
+        key_stack: vec![],
+    };
+
+    // what kind of token are we expecting.
+    // to start, we expect a value item.
+    let mut context = ContextItem::WaitingValue;
+
+    loop {
+        match parser.step(context)? {
+            PollParse::Ready(value) => break Ok(value),
+            PollParse::Pending(c) => context = c,
+        }
+    }
+}
+
+const YIELD_AFTER: usize = 4096;
+
+pub async fn parse_async(arena: &mut Arena<'_>) -> Result<Value, Error> {
+    let lexer = Token::lexer(arena.scratch.src);
+
+    let mut parser = Parser {
+        arena,
+        lexer,
+        stack: vec![],
+        value_stack: vec![],
+        key_stack: vec![],
+    };
+
+    // what kind of token are we expecting.
+    // to start, we expect a value item.
+    let mut context = ContextItem::WaitingValue;
+
+    core::future::poll_fn(move |cx| {
+        let mut i = 0..YIELD_AFTER;
+        match parser.step_while(|| i.next().is_some(), context.clone())? {
+            PollParse::Ready(value) => return Poll::Ready(Ok(value)),
+            PollParse::Pending(c) => context = c,
+        }
+
+        cx.waker().wake_by_ref();
+        Poll::Pending
+    })
+    .await
 }
 
 #[cfg(test)]
@@ -541,6 +627,17 @@ mod tests {
         let input = std::format!("{first_half}{second_half}");
 
         crate::parse(&mut Arena::new(&input)).unwrap();
+    }
+
+    #[pollster::test]
+    async fn non_blocking() {
+        let cool_factor = 1_000_000;
+
+        let first_half = "[".repeat(cool_factor);
+        let second_half = "]".repeat(cool_factor);
+        let input = std::format!("{first_half}{second_half}");
+
+        crate::parse_async(&mut Arena::new(&input)).await.unwrap();
     }
 
     #[test]
