@@ -4,42 +4,42 @@ expression: "(parsed, arena.scratch.scratch, arena.values, arena.keys)"
 ---
 (
     Value {
-        span: 2166..2174,
+        span: 2222..2230,
         kind: Object(
             Object {
-                keys: 10..11,
-                values: 12..13,
+                keys: 11..12,
+                values: 13..14,
             },
         ),
     },
     "",
     [
         Value {
-            span: 327..1032,
+            span: 335..1040,
             kind: Leaf(
                 String,
             ),
         },
         Value {
-            span: 1066..1074,
+            span: 1078..1086,
             kind: Leaf(
                 String,
             ),
         },
         Value {
-            span: 1178..1944,
+            span: 1202..1968,
             kind: Leaf(
                 String,
             ),
         },
         Value {
-            span: 1978..1986,
+            span: 2006..2014,
             kind: Leaf(
                 String,
             ),
         },
         Value {
-            span: 1066..1074,
+            span: 1078..1086,
             kind: Object(
                 Object {
                     keys: 0..2,
@@ -48,7 +48,7 @@ expression: "(parsed, arena.scratch.scratch, arena.values, arena.keys)"
             ),
         },
         Value {
-            span: 1978..1986,
+            span: 2006..2014,
             kind: Object(
                 Object {
                     keys: 2..4,
@@ -57,13 +57,13 @@ expression: "(parsed, arena.scratch.scratch, arena.values, arena.keys)"
             ),
         },
         Value {
-            span: 2078..2083,
+            span: 2122..2127,
             kind: Leaf(
                 String,
             ),
         },
         Value {
-            span: 2105..2122,
+            span: 2153..2170,
             kind: Leaf(
                 String,
             ),
@@ -75,7 +75,7 @@ expression: "(parsed, arena.scratch.scratch, arena.values, arena.keys)"
             ),
         },
         Value {
-            span: 1978..1986,
+            span: 2006..2014,
             kind: Object(
                 Object {
                     keys: 4..6,
@@ -84,7 +84,7 @@ expression: "(parsed, arena.scratch.scratch, arena.values, arena.keys)"
             ),
         },
         Value {
-            span: 2105..2122,
+            span: 2153..2170,
             kind: Array(
                 Array {
                     values: 6..8,
@@ -92,17 +92,26 @@ expression: "(parsed, arena.scratch.scratch, arena.values, arena.keys)"
             ),
         },
         Value {
-            span: 2166..2174,
+            span: 2222..2230,
             kind: Leaf(
                 String,
             ),
         },
         Value {
-            span: 2166..2174,
+            span: 2222..2230,
             kind: Object(
                 Object {
                     keys: 6..10,
                     values: 8..12,
+                },
+            ),
+        },
+        Value {
+            span: 2222..2230,
+            kind: Object(
+                Object {
+                    keys: 10..11,
+                    values: 12..13,
                 },
             ),
         },
@@ -112,19 +121,19 @@ expression: "(parsed, arena.scratch.scratch, arena.values, arena.keys)"
             125..136,
         ),
         StringKey(
-            1059..1063,
+            1071..1075,
         ),
         StringKey(
             125..136,
         ),
         StringKey(
-            1059..1063,
+            1071..1075,
         ),
         StringKey(
-            280..283,
+            284..287,
         ),
         StringKey(
-            1119..1134,
+            1139..1154,
         ),
         StringKey(
             125..136,
@@ -133,13 +142,16 @@ expression: "(parsed, arena.scratch.scratch, arena.values, arena.keys)"
             244..254,
         ),
         StringKey(
-            2045..2053,
+            2085..2093,
         ),
         StringKey(
-            1059..1063,
+            1071..1075,
         ),
         StringKey(
             48..99,
+        ),
+        StringKey(
+            15..26,
         ),
     ],
 )
