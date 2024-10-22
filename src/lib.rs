@@ -43,7 +43,7 @@ enum Token {
     #[token("true", |_| LeafValue::Bool(true))]
     #[token("null", |_| LeafValue::Null)]
     #[regex(r"[-0-9][0-9eE+\-\.]*", |_| LeafValue::Number)]
-    #[regex(r#""([^"\\]*(\\.)?)*""#, |_| LeafValue::String)]
+    #[regex(r#""(\\.)*([^"\\]+(\\.)*)*""#, |_| LeafValue::String)]
     Leaf(LeafValue),
 }
 
