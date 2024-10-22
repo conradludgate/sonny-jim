@@ -42,8 +42,8 @@ enum Token {
     #[token("false", |_| LeafValue::Bool(false))]
     #[token("true", |_| LeafValue::Bool(true))]
     #[token("null", |_| LeafValue::Null)]
-    #[regex(r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?", |_| LeafValue::Number)]
-    #[regex(r#""([^"\\]|\\["\\/bnfrt]|\\u[a-fA-F0-9]{4})*""#, |_| LeafValue::String)]
+    #[regex(r"[-0-9][0-9eE+\-\.]*", |_| LeafValue::Number)]
+    #[regex(r#""([^"\\]*(\\.)?)*""#, |_| LeafValue::String)]
     Leaf(LeafValue),
 }
 
@@ -205,12 +205,9 @@ impl<'a> Arena<'a> {
                     // \u1234 -> U+1234
                     // TODO: maybe support utf16
 
-                    let hex_bytes: [u8; 4] = *b[start..]
-                        .first_chunk()
-                        .expect("logos should have validated that 4 hex bytes follow the \\u");
+                    let hex_bytes: [u8; 4] = *b[start..].first_chunk().ok_or(())?;
                     let mut code = [0; 2];
-                    hex::decode_to_slice(hex_bytes, &mut code)
-                        .expect("should have validated the hex already");
+                    hex::decode_to_slice(hex_bytes, &mut code).map_err(|_| ())?;
 
                     if let Some(c) = char::from_u32(u16::from_be_bytes(code) as u32) {
                         scratch.scratch.push(c);
@@ -220,10 +217,7 @@ impl<'a> Arena<'a> {
 
                     start += 4;
                 }
-                x => unreachable!(
-                    "escape character {:?} has been validated by logos",
-                    x as char
-                ),
+                _ => return Err(()),
             }
         }
 
