@@ -1,0 +1,12 @@
+{
+    "key": -1.23e45,
+    "nested": [
+        "data",
+        {
+            "is": "ok",
+            "escaped\nstrings": "are\tok\ntoo"
+        },
+        true,
+        null
+    ]
+}

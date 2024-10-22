@@ -12,5 +12,12 @@ hex = { version = "0.4", default-features = false }
 
 [dev-dependencies]
 insta = "1.40.0"
-serde_json = { version = "1", features = ["raw_value", "indexmap"] }
 pollster = { version = "0.3", features = ["macro"] }
+
+divan = "0.1.14"
+serde_json = { version = "1", features = ["raw_value"] }
+simd-json = "0.14.2"
+
+[[bench]]
+name = "parse"
+harness = false

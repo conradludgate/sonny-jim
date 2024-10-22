@@ -1,10 +1,10 @@
 #![no_std]
+#![forbid(unsafe_code)]
 
 #[macro_use(vec)]
 extern crate alloc;
 
 #[cfg(test)]
-#[macro_use(dbg)]
 extern crate std;
 
 use alloc::string::String;
@@ -43,7 +43,7 @@ enum Token {
     #[token("false", |_| LeafValue::Bool(false))]
     #[token("true", |_| LeafValue::Bool(true))]
     #[token("null", |_| LeafValue::Null)]
-    #[regex(r"[-0-9][0-9eE+\-\.]*", |_| LeafValue::Number)]
+    #[regex(r"[-\d][\deE+\-\.]*", |_| LeafValue::Number)]
     #[regex("\"", lex_string)]
     Leaf(LeafValue),
 }
@@ -611,45 +611,7 @@ pub async fn parse_async(arena: &mut Arena<'_>) -> Result<Value, Error> {
 
 #[cfg(test)]
 mod tests {
-    use core::hint::black_box;
-    use std::time::Instant;
-
     use crate::Arena;
-
-    const KUBE: &str = include_str!("../testdata/kubernetes-oapi.json");
-
-    #[test]
-    fn bench_this() {
-        let start = Instant::now();
-        for _ in 0..1000 {
-            black_box(crate::parse(black_box(&mut Arena::new(KUBE)))).unwrap();
-        }
-        dbg!(start.elapsed() / 1000);
-    }
-
-    #[test]
-    fn bench_serde_raw() {
-        let start = Instant::now();
-        for _ in 0..1000 {
-            black_box(serde_json::from_str::<&serde_json::value::RawValue>(
-                black_box(KUBE),
-            ))
-            .unwrap();
-        }
-        dbg!(start.elapsed() / 1000);
-    }
-
-    #[test]
-    fn bench_serde() {
-        let start = Instant::now();
-        for _ in 0..1000 {
-            black_box(serde_json::from_str::<serde_json::value::Value>(black_box(
-                KUBE,
-            )))
-            .unwrap();
-        }
-        dbg!(start.elapsed() / 1000);
-    }
 
     #[test]
     fn massive_stack() {
