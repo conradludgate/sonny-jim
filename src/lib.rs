@@ -15,6 +15,7 @@ use core::task::Poll;
 use foldhash::quality::RandomState;
 use hashbrown::hash_table::Entry;
 use hashbrown::HashTable;
+use memchr::memchr2;
 
 use logos::{Lexer, Logos};
 
@@ -43,8 +44,31 @@ enum Token {
     #[token("true", |_| LeafValue::Bool(true))]
     #[token("null", |_| LeafValue::Null)]
     #[regex(r"[-0-9][0-9eE+\-\.]*", |_| LeafValue::Number)]
-    #[regex(r#""(\\.)*([^"\\]+(\\.)*)*""#, |_| LeafValue::String)]
+    #[regex("\"", lex_string)]
     Leaf(LeafValue),
+}
+
+fn lex_string(lexer: &mut Lexer<Token>) -> Result<LeafValue, ()> {
+    let s = lexer.remainder();
+
+    let mut i = 0;
+    loop {
+        let Some(b) = s.as_bytes().get(i..) else {
+            break Err(());
+        };
+        match memchr2(b'\\', b'"', b) {
+            Some(j) => {
+                if b[j] == b'\\' {
+                    i += j + 2;
+                } else {
+                    i += j + 1;
+                    lexer.bump(i);
+                    break Ok(LeafValue::String);
+                }
+            }
+            None => break Err(()),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
