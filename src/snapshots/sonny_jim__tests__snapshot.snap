@@ -4,114 +4,170 @@ expression: "(parsed, arena.scratch.scratch, arena.values, arena.keys)"
 ---
 (
     Value {
-        span: 2222..2230,
+        span: SrcSpan(
+            2222..2230,
+        ),
         kind: Object(
             Object {
-                keys: 11..12,
-                values: 13..14,
+                keys: Keys(
+                    11..12,
+                ),
+                values: Values(
+                    13..14,
+                ),
             },
         ),
     },
     "",
     [
         Value {
-            span: 335..1040,
+            span: SrcSpan(
+                335..1040,
+            ),
             kind: Leaf(
                 String,
             ),
         },
         Value {
-            span: 1078..1086,
+            span: SrcSpan(
+                1078..1086,
+            ),
             kind: Leaf(
                 String,
             ),
         },
         Value {
-            span: 1202..1968,
+            span: SrcSpan(
+                1202..1968,
+            ),
             kind: Leaf(
                 String,
             ),
         },
         Value {
-            span: 2006..2014,
+            span: SrcSpan(
+                2006..2014,
+            ),
             kind: Leaf(
                 String,
             ),
         },
         Value {
-            span: 1078..1086,
+            span: SrcSpan(
+                1078..1086,
+            ),
             kind: Object(
                 Object {
-                    keys: 0..2,
-                    values: 0..2,
+                    keys: Keys(
+                        0..2,
+                    ),
+                    values: Values(
+                        0..2,
+                    ),
                 },
             ),
         },
         Value {
-            span: 2006..2014,
+            span: SrcSpan(
+                2006..2014,
+            ),
             kind: Object(
                 Object {
-                    keys: 2..4,
-                    values: 2..4,
+                    keys: Keys(
+                        2..4,
+                    ),
+                    values: Values(
+                        2..4,
+                    ),
                 },
             ),
         },
         Value {
-            span: 2122..2127,
+            span: SrcSpan(
+                2122..2127,
+            ),
             kind: Leaf(
                 String,
             ),
         },
         Value {
-            span: 2153..2170,
+            span: SrcSpan(
+                2153..2170,
+            ),
             kind: Leaf(
                 String,
             ),
         },
         Value {
-            span: 139..221,
+            span: SrcSpan(
+                139..221,
+            ),
             kind: Leaf(
                 String,
             ),
         },
         Value {
-            span: 2006..2014,
+            span: SrcSpan(
+                2006..2014,
+            ),
             kind: Object(
                 Object {
-                    keys: 4..6,
-                    values: 4..6,
+                    keys: Keys(
+                        4..6,
+                    ),
+                    values: Values(
+                        4..6,
+                    ),
                 },
             ),
         },
         Value {
-            span: 2153..2170,
+            span: SrcSpan(
+                2153..2170,
+            ),
             kind: Array(
                 Array {
-                    values: 6..8,
+                    values: Values(
+                        6..8,
+                    ),
                 },
             ),
         },
         Value {
-            span: 2222..2230,
+            span: SrcSpan(
+                2222..2230,
+            ),
             kind: Leaf(
                 String,
             ),
         },
         Value {
-            span: 2222..2230,
+            span: SrcSpan(
+                2222..2230,
+            ),
             kind: Object(
                 Object {
-                    keys: 6..10,
-                    values: 8..12,
+                    keys: Keys(
+                        6..10,
+                    ),
+                    values: Values(
+                        8..12,
+                    ),
                 },
             ),
         },
         Value {
-            span: 2222..2230,
+            span: SrcSpan(
+                2222..2230,
+            ),
             kind: Object(
                 Object {
-                    keys: 10..11,
-                    values: 12..13,
+                    keys: Keys(
+                        10..11,
+                    ),
+                    values: Values(
+                        12..13,
+                    ),
                 },
             ),
         },

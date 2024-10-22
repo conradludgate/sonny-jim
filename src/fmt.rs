@@ -21,16 +21,15 @@ impl fmt::Debug for FmtValue<'_, '_, '_> {
                 LeafValue::Bool(false) => f.write_str("false"),
                 LeafValue::Null => f.write_str("null"),
                 LeafValue::String | LeafValue::Number => f.write_str(
-                    &self.arena.scratch.src
-                        [self.value.span.start as usize..self.value.span.end as usize],
+                    &self.arena[&self.value.span],
                 ),
             },
             ValueKind::Object(object) => {
                 let mut f = f.debug_map();
 
-                let keys = &self.arena.keys[object.keys.start as usize..object.keys.end as usize];
-                let values =
-                    &self.arena.values[object.values.start as usize..object.values.end as usize];
+                let keys = &self.arena[&object.keys];
+                let values = &self.arena[&object.values];
+
                 for (k, v) in core::iter::zip(keys, values) {
                     let k = &self.arena[k];
                     f.entry(
@@ -47,8 +46,7 @@ impl fmt::Debug for FmtValue<'_, '_, '_> {
             ValueKind::Array(array) => {
                 let mut f = f.debug_list();
 
-                let values =
-                    &self.arena.values[array.values.start as usize..array.values.end as usize];
+                let values = &self.arena[&array.values];
                 for v in values {
                     f.entry(&FmtValue {
                         arena: self.arena,
