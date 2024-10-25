@@ -36,6 +36,28 @@ pub enum LeafValue {
     String,
 }
 
+impl LeafValue {
+    fn from_repr(x: u32) -> Self {
+        match x {
+            0 => LeafValue::Bool(false),
+            1 => LeafValue::Bool(true),
+            2 => LeafValue::Null,
+            3 => LeafValue::Number,
+            4 => LeafValue::String,
+            _ => unreachable!(),
+        }
+    }
+    fn to_repr(self) -> u32 {
+        match self {
+            LeafValue::Bool(false) => 0,
+            LeafValue::Bool(true) => 1,
+            LeafValue::Null => 2,
+            LeafValue::Number => 3,
+            LeafValue::String => 4,
+        }
+    }
+}
+
 #[derive(Debug)]
 struct StackItem {
     span: RangeFrom<u32>,
@@ -53,7 +75,7 @@ enum ContextItem {
     WaitingKey,
     Key { span: SrcSpan, key: StringKey },
     WaitingValue,
-    Value { span: SrcSpan, value: ValueKind },
+    Value { span: SrcSpan, value: ValueInner },
 }
 
 #[derive(Debug)]
@@ -65,10 +87,58 @@ pub struct Error {
     context: ContextItem,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Value {
     pub span: SrcSpan,
-    pub kind: ValueKind,
+    inner: ValueInner,
+}
+
+impl core::fmt::Debug for Value {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Value")
+            .field("span", &self.span)
+            .field("kind", &self.kind())
+            .finish()
+    }
+}
+
+impl Value {
+    pub fn kind(&self) -> ValueKind {
+        self.inner.kind()
+    }
+}
+
+// compact repr for ValueKind.
+// if keys.start == u32::MAX then this is not an object.
+// if vals.start == u32::MAX then this is not an array either.
+// if this is not an object or an array, then it's a leaf which is encoded into vals.end.
+#[derive(Clone)]
+struct ValueInner {
+    keys: Keys,
+    vals: Values,
+}
+
+impl core::fmt::Debug for ValueInner {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.kind().fmt(f)
+    }
+}
+
+impl ValueInner {
+    fn kind(&self) -> ValueKind {
+        if self.keys.0.start < u32::MAX {
+            ValueKind::Object(Object {
+                keys: self.keys.clone(),
+                values: self.vals.clone(),
+            })
+        } else if self.vals.0.start < u32::MAX {
+            ValueKind::Array(Array {
+                values: self.vals.clone(),
+            })
+        } else {
+            ValueKind::Leaf(LeafValue::from_repr(self.vals.0.end))
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

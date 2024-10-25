@@ -4,8 +4,8 @@ use core::ops::RangeFrom;
 use logos::Lexer;
 
 use crate::{
-    token::Token, Arena, Array, ContextItem, Error, Keys, LeafValue, Object, SrcSpan, StackItem,
-    StackItemKind, StringKey, Value, ValueKind, Values,
+    token::Token, Arena, ContextItem, Error, Keys, LeafValue, SrcSpan, StackItem, StackItemKind,
+    StringKey, Value, ValueInner, Values,
 };
 
 pub(crate) struct Parser<'a, 's> {
@@ -76,7 +76,7 @@ impl Parser<'_, '_> {
             }
             None => match context {
                 ContextItem::Value { span, value } if stack.is_empty() => {
-                    return Ok(PollParse::Ready(Value { span, kind: value }))
+                    return Ok(PollParse::Ready(Value { span, inner: value }))
                 }
                 context => return Err(self.early_eof(context)),
             },
@@ -97,7 +97,10 @@ impl Parser<'_, '_> {
                 ContextItem::WaitingValue => {
                     context = ContextItem::Value {
                         span,
-                        value: ValueKind::Leaf(value),
+                        value: ValueInner {
+                            keys: Keys(u32::MAX..u32::MAX),
+                            vals: Values(u32::MAX..value.to_repr()),
+                        },
                     }
                 }
                 // in a key position, only string values are ok
@@ -158,16 +161,16 @@ impl Parser<'_, '_> {
                             ContextItem::WaitingKey if value_stack.len() == vindex as usize => {
                                 context = ContextItem::Value {
                                     span,
-                                    value: ValueKind::Object(Object {
+                                    value: ValueInner {
                                         keys: Keys(0..0),
-                                        values: Values(0..0),
-                                    }),
+                                        vals: Values(0..0),
+                                    },
                                 };
                             }
-                            ContextItem::Value { span, value: kind } => {
+                            ContextItem::Value { span, value: inner } => {
                                 value_stack.push(Value {
                                     span: span.clone(),
-                                    kind,
+                                    inner,
                                 });
 
                                 let vi = arena.values.len();
@@ -180,10 +183,10 @@ impl Parser<'_, '_> {
 
                                 context = ContextItem::Value {
                                     span,
-                                    value: ValueKind::Object(Object {
+                                    value: ValueInner {
                                         keys: Keys(ki as u32..kj as u32),
-                                        values: Values(vi as u32..vj as u32),
-                                    }),
+                                        vals: Values(vi as u32..vj as u32),
+                                    },
                                 };
                             }
                             context => bail!(context),
@@ -217,15 +220,16 @@ impl Parser<'_, '_> {
                             ContextItem::WaitingValue if value_stack.len() == vindex as usize => {
                                 context = ContextItem::Value {
                                     span,
-                                    value: ValueKind::Array(Array {
-                                        values: Values(0..0),
-                                    }),
+                                    value: ValueInner {
+                                        keys: Keys(u32::MAX..u32::MAX),
+                                        vals: Values(0..0),
+                                    },
                                 };
                             }
-                            ContextItem::Value { span, value: kind } => {
+                            ContextItem::Value { span, value: inner } => {
                                 value_stack.push(Value {
                                     span: span.clone(),
-                                    kind,
+                                    inner,
                                 });
 
                                 let vi = arena.values.len();
@@ -234,9 +238,10 @@ impl Parser<'_, '_> {
 
                                 context = ContextItem::Value {
                                     span,
-                                    value: ValueKind::Array(Array {
-                                        values: Values(vi as u32..vj as u32),
-                                    }),
+                                    value: ValueInner {
+                                        keys: Keys(u32::MAX..u32::MAX),
+                                        vals: Values(vi as u32..vj as u32),
+                                    },
                                 };
                             }
                             context => bail!(context),
@@ -267,7 +272,7 @@ impl Parser<'_, '_> {
             // commas may only follow value items if we are in an object or array
             Token::Comma => match context {
                 ContextItem::Value { span, value } if !stack.is_empty() => {
-                    value_stack.push(Value { span, kind: value });
+                    value_stack.push(Value { span, inner: value });
                     match stack.last_mut().unwrap().kind {
                         StackItemKind::Object(_, _) => context = ContextItem::WaitingKey,
                         StackItemKind::Array(_) => context = ContextItem::WaitingValue,

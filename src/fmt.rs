@@ -15,7 +15,7 @@ struct FmtValue<'a, 's, 'v> {
 
 impl fmt::Debug for FmtValue<'_, '_, '_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.value.kind {
+        match &self.value.kind() {
             ValueKind::Leaf(leaf_value) => match leaf_value {
                 LeafValue::Bool(true) => f.write_str("true"),
                 LeafValue::Bool(false) => f.write_str("false"),
