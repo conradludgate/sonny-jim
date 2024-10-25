@@ -17,8 +17,8 @@ impl fmt::Debug for FmtValue<'_, '_, '_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.value.kind() {
             ValueKind::Leaf(leaf_value) => match leaf_value {
-                LeafValue::Bool(true) => f.write_str("true"),
-                LeafValue::Bool(false) => f.write_str("false"),
+                LeafValue::True => f.write_str("true"),
+                LeafValue::False => f.write_str("false"),
                 LeafValue::Null => f.write_str("null"),
                 LeafValue::String | LeafValue::Number => f.write_str(
                     &self.arena[&self.value.span],

@@ -22,8 +22,8 @@ pub(crate) enum Token {
     #[token(",")]
     Comma,
 
-    #[token("false", |_| LeafValue::Bool(false))]
-    #[token("true", |_| LeafValue::Bool(true))]
+    #[token("false", |_| LeafValue::False)]
+    #[token("true", |_| LeafValue::True)]
     #[token("null", |_| LeafValue::Null)]
     #[regex(r"[-\d][\deE+\-\.]*", |_| LeafValue::Number)]
     #[regex("\"", lex_string)]

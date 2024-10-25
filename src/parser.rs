@@ -99,7 +99,7 @@ impl Parser<'_, '_> {
                         span,
                         value: ValueInner {
                             keys: Keys(u32::MAX..u32::MAX),
-                            vals: Values(u32::MAX..value.to_repr()),
+                            vals: Values(u32::MAX..value.to_repr() as u32),
                         },
                     }
                 }

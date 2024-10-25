@@ -29,32 +29,29 @@ mod token;
 pub struct SrcSpan(Range<u32>);
 
 #[derive(Debug, PartialEq, Clone, Copy)]
+#[repr(u8)]
 pub enum LeafValue {
-    Bool(bool),
-    Null,
-    Number,
-    String,
+    False = 0,
+    True = 1,
+    Null = 2,
+    Number = 3,
+    String = 4,
 }
 
 impl LeafValue {
-    fn from_repr(x: u32) -> Self {
+    fn from_repr(x: u8) -> Self {
         match x {
-            0 => LeafValue::Bool(false),
-            1 => LeafValue::Bool(true),
+            0 => LeafValue::False,
+            1 => LeafValue::True,
             2 => LeafValue::Null,
             3 => LeafValue::Number,
             4 => LeafValue::String,
             _ => unreachable!(),
         }
     }
-    fn to_repr(self) -> u32 {
-        match self {
-            LeafValue::Bool(false) => 0,
-            LeafValue::Bool(true) => 1,
-            LeafValue::Null => 2,
-            LeafValue::Number => 3,
-            LeafValue::String => 4,
-        }
+
+    fn to_repr(self) -> u8 {
+        self as u8
     }
 }
 
@@ -136,7 +133,7 @@ impl ValueInner {
                 values: self.vals.clone(),
             })
         } else {
-            ValueKind::Leaf(LeafValue::from_repr(self.vals.0.end))
+            ValueKind::Leaf(LeafValue::from_repr(self.vals.0.end as u8))
         }
     }
 }
